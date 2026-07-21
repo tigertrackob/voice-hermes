@@ -1,37 +1,51 @@
 """
-Text-to-speech via Piper TTS.
+Text-to-speech via Piper TTS (subprocess mode).
 
-Converts agent response text to speech using Piper ONNX models.
-Supports switching voice profiles (.onnx files) at runtime.
-Non-blocking playback with immediate stop for interruption.
+Uses the Piper command-line binary to synthesize speech from text.
+The binary is downloaded separately (see setup.sh).
+Falls back to espeak-ng if Piper binary is unavailable.
 """
 
 import logging
+import os
 import queue
+import subprocess
+import tempfile
 import threading
 from pathlib import Path
 from typing import Optional
 
 import numpy as np
+import soundfile as sf
 
 logger = logging.getLogger(__name__)
 
 
+# Piper binary names per platform
+PIPER_BIN_NAMES = {
+    "linux": "piper",
+    "linux_aarch64": "piper",
+    "darwin": "piper",
+    "win32": "piper.exe",
+}
+
+ESPEAK_AVAILABLE = os.system("which espeak-ng >/dev/null 2>&1") == 0
+
+
 class TTSEngine:
     """
-    Text-to-speech engine using Piper TTS with ONNX voice profiles.
+    Text-to-speech engine using Piper TTS (subprocess) with espeak-ng fallback.
 
     Supports:
-    - Non-blocking playback via background thread
+    - Non-blocking playback via background thread + queue
     - Immediate stop for interruption
-    - Runtime voice switching (.onnx + .json config)
-    - Queueing multiple utterances
+    - Runtime voice switching (.onnx files)
 
     Typical usage::
 
-        tts = TTSEngine("models/piper/en_US-lessac-medium.onnx")
+        tts = TTSEngine()
         tts.speak("Hello, how can I help you?")
-        # ... later, if interrupted:
+        # ... later:
         tts.stop()
     """
 
@@ -39,25 +53,14 @@ class TTSEngine:
         self,
         model_path: str = "models/piper/en_US-lessac-medium.onnx",
         config_path: str = "",
-        device: str = "cpu",
         output_device: Optional[str] = None,
+        piper_bin: Optional[str] = None,
     ):
-        """
-        Args:
-            model_path: Path to Piper .onnx voice model.
-            config_path: Path to Piper .onnx.json config. Auto-derived if empty.
-            device: Inference device ("cpu" or "cuda").
-            output_device: Audio output device name/index for playback.
-        """
         self.model_path = Path(model_path)
-        if config_path:
-            self.config_path = Path(config_path)
-        else:
-            self.config_path = self.model_path.with_suffix(".onnx.json")
-        self.device = device
+        self.config_path = Path(config_path) if config_path else self.model_path.with_suffix(".onnx.json")
         self.output_device = output_device
+        self._piper_bin = piper_bin
 
-        self._voice = None
         self._playback_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
         self._queue: queue.Queue = queue.Queue()
@@ -67,12 +70,7 @@ class TTSEngine:
     # ------------------------------------------------------------------
 
     def speak(self, text: str):
-        """
-        Synthesize *text* and play it (non-blocking).
-
-        If already speaking, the new text is queued and played after
-        the current utterance finishes.
-        """
+        """Synthesize *text* and play it (non-blocking)."""
         if not text.strip():
             return
         self._queue.put(text.strip())
@@ -93,7 +91,6 @@ class TTSEngine:
         return (
             self._playback_thread is not None
             and self._playback_thread.is_alive()
-            and not self._queue.empty()
         )
 
     def is_busy(self) -> bool:
@@ -101,16 +98,9 @@ class TTSEngine:
         return self.is_speaking() or not self._queue.empty()
 
     def set_voice(self, onnx_path: str, config_path: str = ""):
-        """
-        Switch voice profile at runtime.
-
-        Args:
-            onnx_path: Path to new .onnx voice model.
-            config_path: Path to corresponding .json config.
-        """
+        """Switch voice profile at runtime."""
         self.model_path = Path(onnx_path)
         self.config_path = Path(config_path) if config_path else self.model_path.with_suffix(".onnx.json")
-        self._voice = None  # Force reload on next speak
         logger.info("TTS voice switched to %s", self.model_path.name)
 
     def wait_until_done(self):
@@ -122,32 +112,131 @@ class TTSEngine:
     # Internal
     # ------------------------------------------------------------------
 
-    def _load_voice(self):
-        """Lazy-load the Piper voice model."""
-        if self._voice is not None:
-            return
+    def _find_piper_binary(self) -> Optional[str]:
+        """Locate the Piper binary."""
+        if self._piper_bin and os.path.isfile(self._piper_bin):
+            return self._piper_bin
+
+        candidates = [
+            "piper",
+            "./piper",
+            "./piper/piper",
+            "/usr/local/bin/piper",
+            str(Path("models/piper/piper")),
+        ]
+        for c in candidates:
+            if os.path.isfile(c) or os.path.isfile(os.path.expanduser(c)):
+                return c
+            # Check PATH
+            if "/" not in c:
+                result = subprocess.run(
+                    ["which", c], capture_output=True, text=True
+                )
+                if result.returncode == 0:
+                    return result.stdout.strip()
+        return None
+
+    def _synthesize_piper(self, text: str) -> Optional[tuple[np.ndarray, int]]:
+        """Synthesize using the Piper binary via subprocess."""
+        piper_bin = self._find_piper_binary()
+        if piper_bin is None:
+            logger.warning("Piper binary not found")
+            return None
 
         if not self.model_path.exists():
-            raise FileNotFoundError(
-                f"Piper voice model not found: {self.model_path}\n"
-                f"Run setup.sh to download models."
+            logger.error("Piper voice model not found: %s", self.model_path)
+            return None
+
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+            tmp_path = tmp.name
+
+        try:
+            cmd = [
+                piper_bin,
+                "--model", str(self.model_path),
+                "--output-raw",
+            ]
+            if self.config_path.exists():
+                cmd.extend(["--config", str(self.config_path)])
+
+            # Run piper: feed text via stdin, get raw audio via stdout
+            proc = subprocess.run(
+                cmd,
+                input=text,
+                capture_output=True,
+                text=False,  # binary mode
+                timeout=60,
             )
 
-        import piper
-        logger.info("Loading Piper voice: %s", self.model_path.name)
-        self._voice = piper.load_voice(
-            str(self.model_path),
-            config_path=str(self.config_path) if self.config_path.exists() else None,
-        )
-        logger.debug("Piper voice loaded (sample_rate=%d)",
-                     self._voice.config.sample_rate)
+            if proc.returncode != 0:
+                logger.error("Piper error: %s",
+                             proc.stderr.decode(errors="replace")[:200])
+                return None
 
-    def _synthesize(self, text: str) -> tuple[np.ndarray, int]:
-        """Synthesize text to audio array."""
-        self._load_voice()
-        import piper
-        audio = piper.synthesize(text, self._voice)
-        return audio, self._voice.config.sample_rate
+            # Raw audio is 16-bit PCM at Piper's sample rate (usually 22050)
+            raw_audio = np.frombuffer(proc.stdout, dtype=np.int16)
+            if len(raw_audio) == 0:
+                return None
+
+            audio_float = raw_audio.astype(np.float32) / 32767.0
+
+            # Piper default sample rate is 22050
+            return audio_float, 22050
+
+        except subprocess.TimeoutExpired:
+            logger.error("Piper synthesis timed out")
+            return None
+        except Exception as e:
+            logger.error("Piper synthesis error: %s", e)
+            return None
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+
+    def _synthesize_espeak(self, text: str) -> Optional[tuple[np.ndarray, int]]:
+        """Fallback: synthesize using espeak-ng via subprocess."""
+        if not ESPEAK_AVAILABLE:
+            logger.warning("espeak-ng not available")
+            return None
+
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+            tmp_path = tmp.name
+
+        try:
+            subprocess.run(
+                ["espeak-ng", "-w", tmp_path, text],
+                capture_output=True,
+                timeout=30,
+                check=True,
+            )
+            audio, sample_rate = sf.read(tmp_path, dtype="float32")
+            if audio.ndim > 1:
+                audio = audio.mean(axis=1)  # mono
+            return audio.astype(np.float32), sample_rate
+        except Exception as e:
+            logger.error("espeak-ng error: %s", e)
+            return None
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+
+    def _synthesize(self, text: str) -> Optional[tuple[np.ndarray, int]]:
+        """Synthesize text to audio using best available backend."""
+        # Try Piper first
+        result = self._synthesize_piper(text)
+        if result is not None:
+            return result
+        # Fallback to espeak-ng
+        result = self._synthesize_espeak(text)
+        if result is not None:
+            logger.info("Using espeak-ng fallback for TTS")
+            return result
+        logger.error("No TTS backend available")
+        return None
 
     def _start_playback(self):
         """Start the playback thread."""
@@ -173,12 +262,13 @@ class TTSEngine:
                 break
 
             try:
-                # Synthesize
-                audio, sample_rate = self._synthesize(text)
+                result = self._synthesize(text)
+                if result is None:
+                    continue
+                audio, sample_rate = result
                 if len(audio) == 0:
                     continue
 
-                # Play (blocking within this thread, but non-blocking for caller)
                 sd.play(audio, samplerate=sample_rate, device=self.output_device)
                 sd.wait()
             except Exception as e:

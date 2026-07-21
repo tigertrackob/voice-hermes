@@ -4,7 +4,7 @@ set -euo pipefail
 echo "=== Voice-Hermes — System Setup ==="
 
 # System dependencies
-echo "[1/5] Installing system packages..."
+echo "[1/6] Installing system packages..."
 sudo apt-get update -qq
 sudo apt-get install -y -qq \
     portaudio19-dev \
@@ -15,21 +15,34 @@ sudo apt-get install -y -qq \
     sox \
     ffmpeg \
     build-essential \
-    cmake
+    cmake \
+    espeak-ng
 
 # Create virtual environment
 cd "$(dirname "$0")"
-echo "[2/5] Creating Python virtual environment..."
+echo "[2/6] Creating Python virtual environment..."
 python3 -m venv .venv
 source .venv/bin/activate
 
 # Install Python dependencies
-echo "[3/5] Installing Python packages..."
+echo "[3/6] Installing Python packages..."
 pip install --upgrade pip -q
 pip install -r requirements.txt -q
 
+# Download Piper binary
+echo "[4/6] Downloading Piper TTS binary..."
+mkdir -p models/piper
+if [ ! -f models/piper/piper ]; then
+    PIPER_URL="https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_linux_x86_64.tar.gz"
+    wget -q "$PIPER_URL" -O /tmp/piper.tar.gz
+    tar xzf /tmp/piper.tar.gz -C models/piper/ --strip-components=1
+    rm /tmp/piper.tar.gz
+    chmod +x models/piper/piper
+    echo "   Piper binary installed at models/piper/piper"
+fi
+
 # Download Whisper.cpp model
-echo "[4/5] Downloading Whisper tiny.en model..."
+echo "[5/6] Downloading Whisper tiny.en model..."
 mkdir -p models/whisper
 if [ ! -f models/whisper/ggml-tiny.en.bin ]; then
     wget -q https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin \
@@ -37,8 +50,7 @@ if [ ! -f models/whisper/ggml-tiny.en.bin ]; then
 fi
 
 # Download Piper voice model
-echo "[5/5] Downloading Piper voice model (en_US-lessac-medium)..."
-mkdir -p models/piper
+echo "[6/6] Downloading Piper voice model (en_US-lessac-medium)..."
 if [ ! -f models/piper/en_US-lessac-medium.onnx ]; then
     wget -q https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx \
         -O models/piper/en_US-lessac-medium.onnx
