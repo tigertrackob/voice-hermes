@@ -15,4 +15,5 @@ scipy>=1.10
 webrtcvad>=2.0.6
 
 # Config
+setuptools>=68.0
 pydantic>=2.0
