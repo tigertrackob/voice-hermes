@@ -1,7 +1,7 @@
 # Core audio
 sounddevice>=0.4.6
 soundfile>=0.12.1
-numpy>=1.24
+numpy>=1.24,<2
 
 # Wake word
 openwakeword>=0.6.0
