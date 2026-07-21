@@ -8,6 +8,7 @@ Falls back to espeak-ng if Piper binary is unavailable.
 
 import logging
 import os
+import platform
 import queue
 import subprocess
 import tempfile
@@ -20,6 +21,7 @@ import soundfile as sf
 
 logger = logging.getLogger(__name__)
 
+_IS_WINDOWS = platform.system() == "Windows"
 
 # Piper binary names per platform
 PIPER_BIN_NAMES = {
@@ -30,6 +32,8 @@ PIPER_BIN_NAMES = {
 }
 
 ESPEAK_AVAILABLE = os.system("which espeak-ng >/dev/null 2>&1") == 0
+if _IS_WINDOWS:
+    ESPEAK_AVAILABLE = os.system("where espeak-ng >nul 2>&1") == 0
 
 
 class TTSEngine:
@@ -113,16 +117,17 @@ class TTSEngine:
     # ------------------------------------------------------------------
 
     def _find_piper_binary(self) -> Optional[str]:
-        """Locate the Piper binary."""
+        """Locate the Piper binary (platform-aware)."""
         if self._piper_bin and os.path.isfile(self._piper_bin):
             return self._piper_bin
 
+        piper_name = PIPER_BIN_NAMES.get("win32" if _IS_WINDOWS else "linux", "piper")
         candidates = [
-            "piper",
-            "./piper",
-            "./piper/piper",
-            "/usr/local/bin/piper",
-            str(Path("models/piper/piper")),
+            piper_name,
+            f"./{piper_name}",
+            f"./piper/{piper_name}",
+            f"/usr/local/bin/{piper_name}",
+            str(Path(f"models/piper/{piper_name}")),
         ]
         for c in candidates:
             if os.path.isfile(c) or os.path.isfile(os.path.expanduser(c)):

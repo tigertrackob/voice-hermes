@@ -14,10 +14,13 @@ States::
 
 import asyncio
 import logging
+import platform
 import signal
 import sys
 import time
 from enum import Enum, auto
+
+_IS_WINDOWS = platform.system() == "Windows"
 
 from voice_hermes.audio import AudioCapture
 from voice_hermes.config import Config
@@ -89,9 +92,10 @@ class VoiceHermesOrchestrator:
         logger.info("Voice-Hermes starting...")
 
         # Handle shutdown signals
-        loop = asyncio.get_running_loop()
-        for sig in (signal.SIGINT, signal.SIGTERM):
-            loop.add_signal_handler(sig, lambda: asyncio.ensure_future(self._handle_shutdown()))
+        if not _IS_WINDOWS:
+            loop = asyncio.get_running_loop()
+            for sig in (signal.SIGINT, signal.SIGTERM):
+                loop.add_signal_handler(sig, lambda: asyncio.ensure_future(self._handle_shutdown()))
 
         try:
             await self._init_components()

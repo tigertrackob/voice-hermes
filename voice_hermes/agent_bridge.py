@@ -7,6 +7,7 @@ sends user queries (STT output) and streams responses back (for TTS).
 
 import logging
 import os
+import platform
 import select
 import signal
 import subprocess
@@ -14,6 +15,8 @@ import threading
 import time
 from queue import Queue, Empty
 from typing import Generator, Optional
+
+_IS_WINDOWS = platform.system() == "Windows"
 
 logger = logging.getLogger(__name__)
 
@@ -75,15 +78,22 @@ class AgentBridge:
                      self.profile, self.command)
 
         try:
-            self._proc = subprocess.Popen(
-                [self.command, "--profile", self.profile],
+            kwargs = dict(
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 cwd=self.workdir,
                 text=True,
                 bufsize=1,  # Line-buffered
-                preexec_fn=os.setsid,  # Process group for clean kill
+            )
+            if _IS_WINDOWS:
+                kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+            else:
+                kwargs["preexec_fn"] = os.setsid  # Process group for clean kill
+
+            self._proc = subprocess.Popen(
+                [self.command, "--profile", self.profile],
+                **kwargs,
             )
         except FileNotFoundError:
             logger.error(
@@ -158,16 +168,24 @@ class AgentBridge:
 
         if self._proc is not None:
             pid = self._proc.pid
-            # Send SIGTERM to the process group
-            try:
-                os.killpg(os.getpgid(pid), signal.SIGTERM)
-                self._proc.wait(timeout=5)
-            except (subprocess.TimeoutExpired, ProcessLookupError, PermissionError):
+            if _IS_WINDOWS:
                 try:
-                    os.killpg(os.getpgid(pid), signal.SIGKILL)
+                    self._proc.send_signal(signal.CTRL_BREAK_EVENT)
+                    self._proc.wait(timeout=5)
+                except (subprocess.TimeoutExpired, OSError):
+                    self._proc.kill()
                     self._proc.wait(timeout=2)
-                except (ProcessLookupError, PermissionError):
-                    pass
+            else:
+                # Send SIGTERM to the process group
+                try:
+                    os.killpg(os.getpgid(pid), signal.SIGTERM)
+                    self._proc.wait(timeout=5)
+                except (subprocess.TimeoutExpired, ProcessLookupError, PermissionError):
+                    try:
+                        os.killpg(os.getpgid(pid), signal.SIGKILL)
+                        self._proc.wait(timeout=2)
+                    except (ProcessLookupError, PermissionError):
+                        pass
 
             self._proc = None
             logger.info("Hermes agent stopped (PID=%d)", pid)

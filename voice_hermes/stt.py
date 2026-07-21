@@ -7,6 +7,7 @@ Supports two backends: pywhispercpp (preferred) or subprocess whisper.cpp.
 
 import logging
 import os
+import platform
 import subprocess
 import tempfile
 from pathlib import Path
@@ -16,6 +17,8 @@ import numpy as np
 import soundfile as sf
 
 logger = logging.getLogger(__name__)
+
+_IS_WINDOWS = platform.system() == "Windows"
 
 # try importing pywhispercpp
 _has_pywhispercpp = False
@@ -190,15 +193,23 @@ class STTEngine:
 
     @staticmethod
     def _find_whisper_binary() -> str:
-        """Locate the whisper.cpp binary."""
-        candidates = [
-            "whisper.cpp/main",
-            "whisper.cpp/build/bin/whisper-cli",
-            "whisper.cpp/build/main",
-            "/usr/local/bin/whisper-cli",
-            # Check if it's in PATH
-            "whisper-cli",
-        ]
+        """Locate the whisper.cpp binary (platform-aware)."""
+        if _IS_WINDOWS:
+            candidates = [
+                "whisper.cpp/main.exe",
+                "whisper.cpp/build/bin/Release/whisper-cli.exe",
+                "whisper.cpp/build/main.exe",
+                "whisper-cli.exe",
+                "whisper.exe",
+            ]
+        else:
+            candidates = [
+                "whisper.cpp/main",
+                "whisper.cpp/build/bin/whisper-cli",
+                "whisper.cpp/build/main",
+                "/usr/local/bin/whisper-cli",
+                "whisper-cli",
+            ]
         for candidate in candidates:
             if os.path.isfile(candidate) or (
                 not "/" in candidate and (
