@@ -1,0 +1,17 @@
+[Unit]
+Description=Voice-Hermes Agent — voice interface for Hermes AI Agent
+After=network.target sound.target
+
+[Service]
+Type=simple
+User=%u
+WorkingDirectory=/home/ubuntu/voice-hermes
+ExecStart=/home/ubuntu/voice-hermes/.venv/bin/python -m voice_hermes start
+Restart=on-failure
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target
