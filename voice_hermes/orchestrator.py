@@ -105,9 +105,10 @@ class VoiceHermesOrchestrator:
         """Initialize all sub-components."""
         cfg = self.cfg
 
-        # Wake word detector
+        # Wake word detector (also handles stop words during TTS)
         self._wake_word = WakeWordDetector(
             wake_words=cfg.wake_word.wake_words,
+            stop_words=cfg.interrupt.stop_words,
             model_path=cfg.wake_word.model_path,
             sensitivity=cfg.wake_word.sensitivity,
             frame_length=cfg.wake_word.frame_length,
@@ -137,13 +138,11 @@ class VoiceHermesOrchestrator:
             profile=cfg.agent.hermes_profile,
         )
 
-        # Interruption detector
+        # Interruption detector (no own mic — uses wake word detector's stream)
         self._interrupt = InterruptionDetector(
+            wake_word_detector=self._wake_word,
             stop_words=cfg.interrupt.stop_words,
             enabled=cfg.interrupt.enabled,
-            cooldown=cfg.interrupt.cooldown,
-            sample_rate=cfg.audio.sample_rate,
-            input_device=cfg.audio.input_device or None,
         )
         self._interrupt.on_interrupt = self._on_interruption
 
