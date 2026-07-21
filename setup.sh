@@ -29,9 +29,13 @@ echo "[3/6] Installing Python packages..."
 pip install --upgrade pip -q
 pip install -r requirements.txt -q
 
-# Install openwakeword without tflite-runtime (not needed — uses ONNX runtime)
-# tflite-runtime lacks Python 3.12 wheels on Linux
-pip install openwakeword>=0.6.0 --no-deps -q
+# Install tflite-runtime (no Python 3.12 wheel — use cp311, it's ABI-compatible)
+pip install tflite-runtime==2.14.0 --only-binary :all: \
+    --platform manylinux2014_x86_64 --python-version 3.11 \
+    --no-deps -q 2>/dev/null || true
+
+# Install openwakeword (tflite-runtime already handled above)
+pip install openwakeword>=0.6.0 -q
 # scikit-learn is needed by openwakeword's internal preprocessing
 pip install scikit-learn -q
 
