@@ -5,8 +5,7 @@ These tests do NOT require actual microphone/speaker hardware.
 Hardware-dependent tests (capture, playback) are marked as integration tests.
 """
 
-import struct
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import numpy as np
 import pytest
@@ -17,46 +16,54 @@ import pytest
 # ---------------------------------------------------------------------------
 
 class TestVAD:
-    """Test the VAD wrapper class."""
+    """Test the energy-based VAD class."""
 
-    def test_init_valid_sample_rates(self):
+    def test_init_defaults(self):
         from voice_hermes.audio import VAD
-        for rate in (8000, 16000, 32000, 48000):
-            vad = VAD(mode=2, sample_rate=rate)
-            assert vad.sample_rate == rate
+        vad = VAD()
+        assert vad.sample_rate == 16000
+        assert vad._threshold == 0.008
 
-    def test_init_invalid_sample_rate(self):
+    def test_init_mode_mapping(self):
         from voice_hermes.audio import VAD
-        with pytest.raises(ValueError, match="Unsupported.*sample rate"):
-            VAD(sample_rate=12345)
-
-    def test_init_valid_modes(self):
-        from voice_hermes.audio import VAD
-        for mode in range(4):
+        thresholds = {0: 0.004, 1: 0.006, 2: 0.008, 3: 0.012}
+        for mode, expected in thresholds.items():
             vad = VAD(mode=mode)
-            assert vad._vad is not None
+            assert vad._threshold == expected, f"Mode {mode}: expected {expected}"
 
-    def test_is_speech_empty_frame(self):
-        """An all-zero frame should generally be classified as non-speech."""
+    def test_init_custom_threshold(self):
         from voice_hermes.audio import VAD
-        vad = VAD(sample_rate=16000)
+        vad = VAD(energy_threshold=0.02)
+        assert vad._threshold == 0.02
+
+    def test_silence_frame_is_not_speech(self):
+        """An all-zero frame should be classified as non-speech."""
+        from voice_hermes.audio import VAD
+        vad = VAD()
         frame = b"\x00\x00" * 240  # 480 samples, 16-bit = 960 bytes
-        result = vad.is_speech(frame)
-        assert isinstance(result, bool)
+        assert not vad.is_speech(frame)
 
-    def test_is_speech_wrong_frame_size(self):
+    def test_loud_frame_is_speech(self):
+        """A full-scale frame should be classified as speech."""
         from voice_hermes.audio import VAD
-        vad = VAD(sample_rate=16000)
-        with pytest.raises(ValueError, match="VAD frame must be"):
-            vad.is_speech(b"\x00" * 100)
+        vad = VAD()
+        # Max amplitude int16 = 32767
+        frame = b"\xff\x7f" * 240  # 480 samples of max positive
+        assert vad.is_speech(frame)
 
-    def test_is_speech_np_conversion(self):
-        """is_speech_np should accept float32 array and return bool."""
+    def test_is_speech_np_silence(self):
+        """is_speech_np should return False for silence."""
         from voice_hermes.audio import VAD
-        vad = VAD(sample_rate=16000)
+        vad = VAD()
         audio = np.zeros(480, dtype=np.float32)
-        result = vad.is_speech_np(audio)
-        assert isinstance(result, bool)
+        assert not vad.is_speech_np(audio)
+
+    def test_is_speech_np_speech(self):
+        """is_speech_np should return True for loud audio."""
+        from voice_hermes.audio import VAD
+        vad = VAD(energy_threshold=0.01)
+        audio = np.ones(480, dtype=np.float32) * 0.5
+        assert vad.is_speech_np(audio)
 
     def test_frame_count(self):
         from voice_hermes.audio import VAD, VAD_FRAME_MS
@@ -64,6 +71,16 @@ class TestVAD:
         samples_per_frame = 16000 // 1000 * VAD_FRAME_MS  # 480
         audio = np.zeros(samples_per_frame * 5, dtype=np.float32)
         assert vad.frame_count(audio) == 5
+
+    def test_empty_frame_not_speech(self):
+        from voice_hermes.audio import VAD
+        vad = VAD()
+        assert not vad.is_speech(b"")
+
+    def test_empty_np_not_speech(self):
+        from voice_hermes.audio import VAD
+        vad = VAD()
+        assert not vad.is_speech_np(np.array([], dtype=np.float32))
 
 
 # ---------------------------------------------------------------------------
