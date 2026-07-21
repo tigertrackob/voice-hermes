@@ -3,8 +3,8 @@ sounddevice>=0.4.6
 soundfile>=0.12.1
 numpy>=1.24
 
-# Wake word
-openwakeword>=0.6.0
+# Wake word (openwakeword installed via setup.sh with no-deps for Python 3.12 compat)
+# openwakeword>=0.6.0
 onnxruntime>=1.15
 
 # STT

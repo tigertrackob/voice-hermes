@@ -29,6 +29,10 @@ echo "[3/6] Installing Python packages..."
 pip install --upgrade pip -q
 pip install -r requirements.txt -q
 
+# Install openwakeword without tflite-runtime (not needed — uses ONNX runtime)
+# tflite-runtime lacks Python 3.12 wheels on Linux
+pip install openwakeword>=0.6.0 --no-deps -q
+
 # Download Piper binary
 echo "[4/6] Downloading Piper TTS binary..."
 mkdir -p models/piper
