@@ -18,10 +18,16 @@ sudo apt-get install -y -qq \
     cmake \
     espeak-ng
 
-# Create virtual environment
+# Create virtual environment with Python 3.11 (required for package compatibility)
 cd "$(dirname "$0")"
-echo "[2/6] Creating Python virtual environment..."
-python3 -m venv .venv
+echo "[2/6] Creating Python 3.11 virtual environment..."
+if ! command -v python3.11 &> /dev/null; then
+    echo "ERROR: python3.11 not found. Install it first:"
+    echo "  sudo add-apt-repository ppa:deadsnakes/ppa"
+    echo "  sudo apt-get install python3.11 python3.11-dev python3.11-venv"
+    exit 1
+fi
+python3.11 -m venv .venv
 source .venv/bin/activate
 
 # Install Python dependencies
@@ -29,12 +35,6 @@ echo "[3/6] Installing Python packages..."
 pip install --upgrade pip -q
 pip install -r requirements.txt -q
 
-# Install tflite-runtime (no Python 3.12 wheel — use cp311, it's ABI-compatible)
-pip install tflite-runtime==2.14.0 --only-binary :all: \
-    --platform manylinux2014_x86_64 --python-version 3.11 \
-    --no-deps -q 2>/dev/null || true
-
-# Install openwakeword (tflite-runtime already handled above)
 pip install openwakeword>=0.6.0 -q
 # scikit-learn is needed by openwakeword's internal preprocessing
 pip install scikit-learn -q
