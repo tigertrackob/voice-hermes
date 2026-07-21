@@ -127,7 +127,6 @@ class VoiceHermesOrchestrator:
         self._tts = TTSEngine(
             model_path=cfg.tts.model_path,
             config_path=cfg.tts.config_path,
-            device=cfg.tts.device,
             output_device=cfg.audio.output_device or None,
         )
 
