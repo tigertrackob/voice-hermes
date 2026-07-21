@@ -39,8 +39,40 @@ pip install openwakeword>=0.6.0 -q
 # scikit-learn is needed by openwakeword's internal preprocessing
 pip install scikit-learn -q
 
+# Download OpenWakeWord model files (not bundled in the pip package)
+echo "[4/7] Downloading OpenWakeWord pre-trained models..."
+python3 << 'PYEOF'
+import os, urllib.request, pathlib, openwakeword
+
+models_dir = pathlib.Path(openwakeword.__file__).parent / "resources" / "models"
+models_dir.mkdir(parents=True, exist_ok=True)
+
+# Models that need to be downloaded (from openwakeword/__init__.py)
+downloads = {
+    "embedding_model.tflite":    "https://github.com/dscripka/openWakeWord/releases/download/v0.5.1/embedding_model.tflite",
+    "melspectrogram.tflite":     "https://github.com/dscripka/openWakeWord/releases/download/v0.5.1/melspectrogram.tflite",
+    "silero_vad.onnx":           "https://github.com/dscripka/openWakeWord/releases/download/v0.5.1/silero_vad.onnx",
+    "alexa_v0.1.tflite":         "https://github.com/dscripka/openWakeWord/releases/download/v0.5.1/alexa_v0.1.tflite",
+    "hey_mycroft_v0.1.tflite":   "https://github.com/dscripka/openWakeWord/releases/download/v0.5.1/hey_mycroft_v0.1.tflite",
+    "hey_jarvis_v0.1.tflite":    "https://github.com/dscripka/openWakeWord/releases/download/v0.5.1/hey_jarvis_v0.1.tflite",
+    "hey_rhasspy_v0.1.tflite":   "https://github.com/dscripka/openWakeWord/releases/download/v0.5.1/hey_rhasspy_v0.1.tflite",
+    "timer_v0.1.tflite":         "https://github.com/dscripka/openWakeWord/releases/download/v0.5.1/timer_v0.1.tflite",
+    "weather_v0.1.tflite":       "https://github.com/dscripka/openWakeWord/releases/download/v0.5.1/weather_v0.1.tflite",
+}
+
+for fname, url in downloads.items():
+    dest = models_dir / fname
+    if not dest.exists():
+        print(f"   Downloading {fname}...")
+        urllib.request.urlretrieve(url, dest)
+    else:
+        print(f"   {fname} already exists")
+
+print("   OpenWakeWord models ready")
+PYEOF
+
 # Download Piper binary
-echo "[4/6] Downloading Piper TTS binary..."
+echo "[5/7] Downloading Piper TTS binary..."
 mkdir -p models/piper
 if [ ! -f models/piper/piper ]; then
     PIPER_URL="https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_linux_x86_64.tar.gz"
@@ -52,7 +84,7 @@ if [ ! -f models/piper/piper ]; then
 fi
 
 # Download Whisper.cpp model
-echo "[5/6] Downloading Whisper tiny.en model..."
+echo "[6/7] Downloading Whisper tiny.en model..."
 mkdir -p models/whisper
 if [ ! -f models/whisper/ggml-tiny.en.bin ]; then
     wget -q https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin \
@@ -60,7 +92,7 @@ if [ ! -f models/whisper/ggml-tiny.en.bin ]; then
 fi
 
 # Download Piper voice model
-echo "[6/6] Downloading Piper voice model (en_US-lessac-medium)..."
+echo "[7/7] Downloading Piper voice model (en_US-lessac-medium)..."
 if [ ! -f models/piper/en_US-lessac-medium.onnx ]; then
     wget -q https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx \
         -O models/piper/en_US-lessac-medium.onnx
