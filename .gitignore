@@ -1,0 +1,12 @@
+models/
+config.toml
+__pycache__/
+*.pyc
+.venv/
+*.onnx
+*.gguf
+*.bin
+.DS_Store
+*.egg-info/
+dist/
+build/

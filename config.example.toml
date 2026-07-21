@@ -1,0 +1,48 @@
+# Voice-Hermes Configuration
+# Copy to config.toml and modify as needed.
+
+[general]
+debug = true
+log_level = "info"  # debug, info, warning, error
+
+[wake_word]
+engine = "openwakeword"
+model_path = "models/wake_word/hey_jarvis.onnx"
+wake_words = ["hey jarvis"]
+sensitivity = 0.5
+frame_length = 1280
+
+[stt]
+engine = "whisper_cpp"
+model_path = "models/whisper/ggml-tiny.en.bin"
+model_size = "tiny"
+language = "en"
+silence_timeout = 1.5
+vad_mode = 2
+sample_rate = 16000
+
+[tts]
+engine = "piper"
+model_path = "models/piper/en_US-lessac-medium.onnx"
+config_path = "models/piper/en_US-lessac-medium.onnx.json"
+speaker_id = 0
+rate = 1.0
+volume = 1.0
+device = "cpu"
+
+[agent]
+type = "hermes"
+hermes_command = "hermes"
+hermes_profile = "default"
+
+[interrupt]
+enabled = true
+stop_words = ["stop", "silence", "that's enough"]
+cooldown = 0.5
+
+[audio]
+input_device = ""
+output_device = ""
+sample_rate = 16000
+channels = 1
+blocksize = 1024
