@@ -7,7 +7,7 @@ log_level = "info"  # debug, info, warning, error
 
 [wake_word]
 engine = "openwakeword"
-model_path = "models/wake_word/hey_jarvis.onnx"
+model_path = ""  # Path to custom .onnx model (empty = use built-in "hey jarvis", "alexa", etc.)
 wake_words = ["hey jarvis"]
 sensitivity = 0.5
 frame_length = 1280

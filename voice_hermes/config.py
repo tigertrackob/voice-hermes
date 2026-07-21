@@ -18,7 +18,7 @@ except ImportError:
 @dataclass
 class WakeWordConfig:
     engine: str = "openwakeword"
-    model_path: str = "models/wake_word/hey_jarvis.onnx"
+    model_path: str = ""
     wake_words: list = field(default_factory=lambda: ["hey jarvis"])
     sensitivity: float = 0.5
     frame_length: int = 1280
