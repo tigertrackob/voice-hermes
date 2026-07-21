@@ -1,20 +1,18 @@
 """
 Audio capture, playback, and voice activity detection.
 
-Uses sounddevice (PortAudio) for cross-platform audio I/O
-and webrtcvad for silence detection (VAD).
+Uses sounddevice (PortAudio) for cross-platform audio I/O.
+Voice activity detection uses energy-based thresholding (no external deps).
 
 AudioCapture: microphone capture with silence-gated recording
 AudioPlayback: non-blocking playback with immediate stop (for interruption)
 """
 
 import logging
-import struct
 from typing import Callable, Optional
 
 import numpy as np
 import sounddevice as sd
-import webrtcvad
 
 logger = logging.getLogger(__name__)
 
@@ -22,8 +20,9 @@ logger = logging.getLogger(__name__)
 DEFAULT_SAMPLE_RATE = 16000
 DEFAULT_CHANNELS = 1
 DEFAULT_BLOCKSIZE = 1024
-VAD_FRAME_MS = 30          # webrtcvad requires 30ms frames
+VAD_FRAME_MS = 30
 VAD_FRAME_SIZE = 480       # 16kHz × 30ms = 480 samples
+VAD_ENERGY_THRESHOLD = 0.008  # RMS energy threshold for speech detection
 
 
 # ---------------------------------------------------------------------------
@@ -66,46 +65,53 @@ def get_default_output_device() -> Optional[int]:
 # VAD (Voice Activity Detection) utilities
 # ---------------------------------------------------------------------------
 
-def _validate_vad_frame(frame: bytes, sample_rate: int):
-    """
-    Validate that *frame* is the right size for webrtcvad at *sample_rate*.
-
-    Raises ValueError if the frame size is wrong.
-    """
-    expected = sample_rate // 1000 * VAD_FRAME_MS * 2  # 2 bytes per sample
-    if len(frame) != expected:
-        raise ValueError(
-            f"VAD frame must be {expected} bytes at {sample_rate} Hz "
-            f"({VAD_FRAME_MS}ms), got {len(frame)} bytes"
-        )
-
+# ---------------------------------------------------------------------------
+# VAD (Voice Activity Detection) — energy-based, no external deps
+# ---------------------------------------------------------------------------
 
 class VAD:
-    """Thin wrapper around webrtcvad with frame-level helpers."""
+    """Energy-based voice activity detection.
 
-    def __init__(self, mode: int = 2, sample_rate: int = DEFAULT_SAMPLE_RATE):
+    Detects speech by measuring RMS energy against a threshold.
+    No external dependencies — works on all Python versions.
+    """
+
+    def __init__(
+        self,
+        mode: int = 2,
+        sample_rate: int = DEFAULT_SAMPLE_RATE,
+        energy_threshold: float = VAD_ENERGY_THRESHOLD,
+    ):
         """
         Args:
-            mode: VAD aggressiveness 0–3 (higher = more aggressive).
-            sample_rate: Must be 8000, 16000, 32000, or 48000.
+            mode: Aggressiveness 0–3 (higher = more aggressive).
+                  Maps to higher energy thresholds: 0→0.004, 1→0.006,
+                  2→0.008 (default), 3→0.012.
+            sample_rate: Audio sample rate (affects frame size).
+            energy_threshold: Override threshold directly (overrides mode).
         """
-        if sample_rate not in (8000, 16000, 32000, 48000):
-            raise ValueError(f"Unsupported VAD sample rate: {sample_rate}")
         self.sample_rate = sample_rate
-        self._vad = webrtcvad.Vad(mode)
+        self._threshold = energy_threshold
+        # Map mode to threshold if not explicitly set
+        if energy_threshold == VAD_ENERGY_THRESHOLD:
+            mode_map = {0: 0.004, 1: 0.006, 2: 0.008, 3: 0.012}
+            self._threshold = mode_map.get(mode, 0.008)
 
     def is_speech(self, frame: bytes) -> bool:
-        """Return True if the 30ms PCM frame contains speech."""
-        _validate_vad_frame(frame, self.sample_rate)
-        return self._vad.is_speech(frame, self.sample_rate)
+        """Return True if the 30ms PCM16 frame contains speech."""
+        # Convert bytes to int16, compute RMS
+        samples = np.frombuffer(frame, dtype=np.int16).astype(np.float32)
+        if len(samples) == 0:
+            return False
+        rms = float(np.sqrt(np.mean(samples ** 2))) / 32767.0
+        return rms >= self._threshold
 
     def is_speech_np(self, audio_chunk: np.ndarray) -> bool:
-        """
-        Convenience: accept a numpy float32 array (range -1..1),
-        convert to 16-bit PCM, and run VAD on the first 30ms frame.
-        """
-        pcm = (audio_chunk * 32767).astype(np.int16).tobytes()
-        return self.is_speech(pcm[:VAD_FRAME_SIZE * 2])
+        """Convenience: accept float32 numpy array (range -1..1)."""
+        if len(audio_chunk) == 0:
+            return False
+        rms = float(np.sqrt(np.mean(audio_chunk ** 2)))
+        return rms >= self._threshold
 
     def frame_count(self, audio: np.ndarray) -> int:
         """Number of complete VAD frames in *audio*."""

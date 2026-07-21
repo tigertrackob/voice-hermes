@@ -11,8 +11,8 @@ onnxruntime>=1.15
 pywhispercpp>=0.2.0
 scipy>=1.10
 
-# Voice activity detection
-webrtcvad>=2.0.6
+# Voice activity detection (built-in, energy-based — no external dep)
+# webrtcvad removed — C extension doesn't support Python 3.12
 
 # Config
 setuptools>=68.0
