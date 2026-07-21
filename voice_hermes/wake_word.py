@@ -9,6 +9,7 @@ Runs in a separate thread so it doesn't block the main event loop.
 """
 
 import logging
+import os
 import threading
 import time
 from dataclasses import dataclass
@@ -116,12 +117,18 @@ class WakeWordDetector:
         if self._model is not None:
             return
         from openwakeword import Model
-        if self.model_path:
+        # Only try to load custom model if the file actually exists
+        if self.model_path and os.path.isfile(self.model_path):
+            logger.info("Loading custom wake word model: %s", self.model_path)
             self._model = Model(
                 wakeword_models=[self.model_path],
                 enable_speex_noise_suppression=True,
             )
         else:
+            if self.model_path:
+                logger.warning("Custom model '%s' not found — using built-in models",
+                               self.model_path)
+            # Use built-in pre-trained models (e.g. "hey jarvis", "alexa")
             self._model = Model(
                 wakeword_models=[],
                 enable_speex_noise_suppression=True,
