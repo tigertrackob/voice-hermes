@@ -10,12 +10,13 @@ Headless voice interface for [Hermes Agent](https://hermes-agent.nousresearch.co
 - **Text-to-speech** — Piper TTS reads the response aloud with selectable .onnx voice profiles
 - **Interruptible** — say "stop" to cut off TTS mid-playback
 - **Always-listening** — idle until wake word, auto-closes after silence
-- **Systemd service** — runs headless, logs to journalctl
+- **Systemd/launchd service** — runs headless
 
 ## Quick Start
 
+### Linux
 ```bash
-# Install dependencies
+# Install dependencies and models
 ./setup.sh
 
 # Start in foreground (testing)
@@ -27,6 +28,24 @@ sudo cp voice-hermes.service /etc/systemd/system/
 sudo systemctl enable --now voice-hermes
 sudo journalctl -u voice-hermes -f
 ```
+
+### macOS (Apple Silicon & Intel)
+```bash
+# macOS-specific setup via Homebrew
+bash scripts/setup_macos.sh
+
+# Start in foreground
+source .venv/bin/activate
+python -m voice_hermes start
+
+# Or install as launchd service
+cp scripts/voice-hermes.plist ~/Library/LaunchAgents/
+# Edit the plist to set your correct WorkingDirectory and python path
+launchctl load ~/Library/LaunchAgents/voice-hermes.plist
+tail -f /tmp/voice-hermes.log
+```
+
+> **Note:** macOS requires microphone permissions in System Settings → Privacy & Security → Microphone.
 
 ## Project Structure
 
